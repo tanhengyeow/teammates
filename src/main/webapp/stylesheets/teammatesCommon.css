@@ -669,11 +669,13 @@ Prevents content overflow in navbar. */
 }
 
 table#t01 tr:nth-child(even) {
-    background-color: #eee;
+    background-color: #EEE;
 }
+
 table#t01 tr:nth-child(odd) {
-    background-color:#fff;
+    background-color: #FFF;
 }
+
 table#t01 th {
     background-color: black;
     color: white;
