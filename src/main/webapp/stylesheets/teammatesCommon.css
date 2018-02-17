@@ -668,6 +668,17 @@ Prevents content overflow in navbar. */
     line-height: 1.5;
 }
 
+table#t01 tr:nth-child(even) {
+    background-color: #eee;
+}
+table#t01 tr:nth-child(odd) {
+    background-color:#fff;
+}
+table#t01 th {
+    background-color: black;
+    color: white;
+}
+
 /* DatePicker Container */
 .ui-datepicker {
     -moz-box-shadow: 0 0 10px 0 rgba(0, 0, 0, .5);
