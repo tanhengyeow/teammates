@@ -7,7 +7,9 @@ import {
 } from '../common/instructor';
 
 import {
+    BootstrapContextualColors,
     ParamsNames,
+    Const,
 } from '../common/const';
 
 import {
@@ -20,6 +22,11 @@ import {
     getSpreadsheetLength,
     toggleStudentsPanel,
 } from '../common/instructorEnroll';
+
+import {
+    appendNewStatusMessage,
+    clearStatusMessages,
+} from '../common/statusMessage';
 
 const dataContainer = document.getElementById('existingDataSpreadsheet');
 const dataHandsontable = new Handsontable(dataContainer, {
@@ -67,8 +74,61 @@ const enrollHandsontable = new Handsontable(enrollContainer, {
     ],
 });
 
+const enrollErrorMessagesMap = new Map();
+
 /**
- * Updates the student data from the spreadsheet when the user clicks "Enroll Students" button.
+ * Function to update the enrollHandsontable cell settings according to a custom renderer.
+ */
+function updateEnrollHandsontableCellSettings(targetRenderer) {
+    enrollHandsontable.updateSettings({
+        cells: () => {
+            const cellProperties = {};
+            cellProperties.renderer = targetRenderer; // uses function directly
+            return cellProperties;
+        },
+    });
+}
+
+/**
+ * Custom renderer to reset any cell styles and tooltips in the current Handsontable instance.
+ */
+/* eslint-disable prefer-rest-params */
+function resetDefaultViewRenderer(instance, td) {
+    Handsontable.renderers.TextRenderer.apply(this, arguments);
+    $(td).tooltip('destroy');
+    td.style.background = '#FFFFFF';
+}
+
+/**
+ * Custom renderer to update the rows of the Handsontable instance to the respective cell styles and tooltips.
+ */
+function statusMessageRowsRenderer(instance, td, row) {
+    Handsontable.renderers.TextRenderer.apply(this, arguments);
+    let text = '';
+
+    if (enrollErrorMessagesMap.has(row)) {
+        td.style.background = '#ff6666';
+        text = enrollErrorMessagesMap.get(row);
+    } else {
+        td.style.background = '#FFFFFF';
+        return;
+    }
+    $(td).tooltip({
+        trigger: 'hover active',
+        title: text,
+        placement: 'auto',
+        container: 'body',
+        template: '<div class="tooltip" role="tooltip"><div class="tooltip-arrow">'
+        + '</div><div class="tooltip-inner"></div></div>',
+    });
+}
+
+enrollHandsontable.addHook('beforeColumnSort', () => {
+    updateEnrollHandsontableCellSettings(resetDefaultViewRenderer);
+});
+
+/**
+ * Updates the student data from the spreadsheet when the user clicks 'Enroll Students' button.
  * Pushes the output data into the textarea (used for form submission).
  */
 function updateDataDump() {
@@ -99,10 +159,31 @@ function getAjaxStudentList(displayStatus) {
             url: '/page/instructorCourseEnrollAjaxPage',
             cache: false,
             data: {
-                courseid: $spreadsheetForm.children(`input[name="${ParamsNames.COURSE_ID}"]`).val(),
+                courseid: $spreadsheetForm.children(`input[name='${ParamsNames.COURSE_ID}']`).val(),
             },
             beforeSend() {
                 displayStatus.html('<img height="25" width="25" src="/images/ajax-preload.gif">');
+            },
+        })
+                .done(resolve)
+                .fail(reject);
+    });
+}
+
+/**
+ * Gets enroll status through an AJAX request.
+ * @returns {Promise} the state of the result from the AJAX request
+ */
+function getAjaxEnrollStatus() {
+    return new Promise((resolve, reject) => {
+        const $spreadsheetForm = $('#student-spreadsheet-form');
+        $.ajax({
+            type: 'POST',
+            url: '/page/instructorCourseEnrollAjaxEnrollStatusPage',
+            cache: false,
+            data: {
+                courseid: $spreadsheetForm.children(`input[name='${ParamsNames.COURSE_ID}']`).val(),
+                enrollstudents: $spreadsheetForm.find('#enrollstudents').val(),
             },
         })
                 .done(resolve)
@@ -121,7 +202,60 @@ function adjustStudentsPanelView($panelHeading, panelCollapse,
 }
 
 /**
- * Expands "Existing students" panel and loads existing students' data (if spreadsheet is not empty)
+ * Adds all error messages returned from the backend into a map.
+ */
+function processEnrollErrorMessages(enrollErrorLines) {
+    // Updates any error messages to process later
+    if (!jQuery.isEmptyObject(enrollErrorLines)) {
+        Object.keys(enrollErrorLines).forEach(key => (
+            enrollErrorMessagesMap.set(key, enrollErrorLines[key])
+        ));
+    }
+
+    enrollHandsontable.getData().forEach((row, index) => {
+        const currRowLine = row.join('|');
+        if (enrollErrorMessagesMap.has(currRowLine)) {
+            enrollErrorMessagesMap.set(index,
+                    enrollErrorMessagesMap.get(currRowLine));
+        }
+    });
+}
+
+/**
+ * Triggers an AJAX request to retrieve the enroll status.
+ * Does the necessary post processing after the state of the AJAX request is returned.
+ */
+function triggerAndProcessAjaxEnrollStatusAction(event) {
+    getAjaxEnrollStatus(event)
+            .then((data) => {
+                if (data.statusMessagesToUser.length === 1
+                        && data.statusMessagesToUser[0].color === 'SUCCESS') {
+                    $('#student-spreadsheet-form').unbind('submit').submit();
+                } else {
+                    clearStatusMessages();
+                    updateEnrollHandsontableCellSettings(resetDefaultViewRenderer);
+
+                    if (data.statusMessagesToUser.length === 1
+                            && data.statusMessagesToUser[0].text === Const.StatusMessages.ENROLL_LINE_EMPTY) {
+                        appendNewStatusMessage(Const.StatusMessages.ENROLL_LINE_EMPTY,
+                                BootstrapContextualColors[data.statusMessagesToUser[0].color]);
+                    } else if (data.statusMessagesToUser.length === 1
+                            && data.statusMessagesToUser[0].text === Const.StatusMessages.QUOTA_PER_ENROLLMENT_EXCEED) {
+                        appendNewStatusMessage(Const.StatusMessages.QUOTA_PER_ENROLLMENT_EXCEED,
+                                BootstrapContextualColors[data.statusMessagesToUser[0].color]);
+                    } else {
+                        processEnrollErrorMessages(data.enrollErrorLines);
+                        updateEnrollHandsontableCellSettings(statusMessageRowsRenderer);
+                    }
+                }
+            }).catch(() => {
+                clearStatusMessages();
+                appendNewStatusMessage('Failed to enroll students. Check your internet connectivity.',
+                        BootstrapContextualColors.DANGER);
+            });
+}
+/**
+ * Expands 'Existing students' panel and loads existing students' data (if spreadsheet is not empty)
  * into the spreadsheet interface. Spreadsheet interface would be shown after expansion.
  * The panel will be collapsed otherwise if the spreadsheet interface is already shown.
  */
@@ -152,7 +286,7 @@ function expandCollapseExistingStudentsPanel() {
 }
 
 /**
- * Expands "New students" panel. Spreadsheet interface would be shown after expansion, including its affiliated buttons.
+ * Expands 'New students' panel. Spreadsheet interface would be shown after expansion, including its affiliated buttons.
  * The panel will be collapsed otherwise if the spreadsheet interface is already shown.
  */
 function expandCollapseNewStudentsPanel() {
@@ -196,5 +330,10 @@ $(document).ready(() => {
         enrollHandsontable.alter('insert_row', null, emptyRowsCount);
     });
 
-    $('#student-spreadsheet-form').submit(updateDataDump);
+    $('#student-spreadsheet-form').submit((event) => {
+        event.preventDefault();
+        enrollErrorMessagesMap.clear();
+        updateDataDump();
+        triggerAndProcessAjaxEnrollStatusAction(event);
+    });
 });

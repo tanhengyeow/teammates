@@ -54,8 +54,17 @@ public class InstructorCourseEnrollSaveAction extends Action {
                             + courseId + "]:</span><br>" + sanitizedStudentsInfo.replace("\n", "<br>");
 
             return createShowPageResult(Const.ViewURIs.INSTRUCTOR_COURSE_ENROLL_RESULT, pageData);
+        } catch (EnrollException e) {
+            statusToUser.add(
+                    new StatusMessage("Enrollment failed. Try again.", StatusMessageColor.DANGER));
 
-        } catch (EnrollException | InvalidParametersException e) {
+            statusToAdmin += "<br>Enrollment string entered by user:<br>" + sanitizedStudentsInfo.replace("\n", "<br>");
+
+            InstructorCourseEnrollPageData pageData =
+                    new InstructorCourseEnrollPageData(account, sessionToken, courseId, studentsInfo);
+
+            return createShowPageResult(Const.ViewURIs.INSTRUCTOR_COURSE_ENROLL, pageData);
+        } catch (InvalidParametersException e) {
             setStatusForException(e);
 
             statusToAdmin += "<br>Enrollment string entered by user:<br>" + sanitizedStudentsInfo.replace("\n", "<br>");
